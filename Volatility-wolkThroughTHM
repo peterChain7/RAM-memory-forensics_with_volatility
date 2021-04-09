@@ -1,0 +1,272 @@
+Blue Primer: Volatility Writeup
+
+https://tryhackme.com/room/bpvolatility
+Welcome! This writeup goes over how to use volatility to perform file forensics on a memory capture file, and analyze the extracted files for malware.  
+
+“Volatility is a free memory forensics tool developed and maintained by Volatility labs. Regarded as the gold standard for memory forensics in incident response, Volatility is wildly expandable via a plugins system and is an invaluable tool for any Blue Teamer.” -THM
+
+[Task 1] Intro
+1) Install Volatility onto your workstation of choice or use the provided virtual machine. On Debian-based systems such as Kali this can be done via `apt-get install volatility`
+This command did not work on Ubuntu 20.04 LTS (Debian-based), and apt-get is deprecated. The package for current Debian-based systems is:
+
+ 
+
+sudo snap install volatility-phocean 
+Answer: No answer needed.
+
+[Task 2] Obtaining Memory Samples
+#1 What memory format is the most common?
+FTK Imager – https://accessdata.com/product-download/ftk-imager-version-4-2-0
+Redline – https://www.fireeye.com/services/freeware/redline.html *Requires registration but Redline has a very nice GUI
+DumpIt.exe
+win32dd.exe / win64dd.exe – *Has fantastic psexec support, great for IT departments if your EDR solution doesn’t support this
+
+These tools will typically output a .raw file which contains an image of the system memory. The .raw format is one of the most common memory file types you will see in the wild.
+
+Answer: .raw
+
+ 
+#2 The Window’s system we’re looking to perform memory forensics on was turned off by mistake. What file contains a compressed memory image?
+… Offline machines, however, can have their memory pulled relatively easily as long as their drives aren’t encrypted.
+For Windows systems, this can be done via pulling the following file:
+
+        %SystemDrive%/hiberfil.sys
+
+hiberfil.sys, better known as the Windows hibernation file contains a compressed memory image from the previous boot.
+Microsoft Windows systems use this in order to provide faster boot-up times.
+We can use this file in our case for some memory forensics!
+
+Answer: hiberfil.sys
+
+ 
+#3 How about if we wanted to perform memory forensics on a VMware-based virtual machine?
+Here’s a quick sampling of the memory capture process/file containing a memory image for different virtual machine hypervisors:
+
+VMware – .vmem file
+Hyper-V – .bin file
+Parallels – .mem file
+VirtualBox – .sav file *This is only a partial memory file. You’ll need to dump memory like a normal bare-metal system for this hypervisor
+
+Answer: .vmem
+
+[Task 3] Examining Our Patient
+#1 First, let’s figure out what profile we need to use. Profiles determine how Volatility treats our memory image since every version of Windows is a little bit different. Let’s see our options now with the command `volatility -f MEMORY_FILE.raw imageinfo`
+    $ volatility -f cridex.vmem imageinfo
+    Volatility Foundation Volatility Framework 2.6.1
+    INFO    : volatility.debug    : Determining profile based on KDBG search...
+            Suggested Profile(s) : WinXPSP2x86, WinXPSP3x86 (Instantiated with WinXPSP2x86)
+                        AS Layer1 : IA32PagedMemoryPae (Kernel AS)
+                        AS Layer2 : FileAddressSpace (/home/hellmoon/Documents/TryhackmeNotes/volatilityRoom/cridex.vmem)
+                        PAE type : PAE
+                            DTB : 0x2fe000L
+                            KDBG : 0x80545ae0L
+            Number of Processors : 1
+        Image Type (Service Pack) : 3
+                    KPCR for CPU 0 : 0xffdff000L
+                KUSER_SHARED_DATA : 0xffdf0000L
+            Image date and time : 2012-07-22 02:45:08 UTC+0000
+        Image local date and time : 2012-07-21 22:45:08 -0400 
+Answer: No answer needed.
+
+ 
+#2 Running the imageinfo command in Volatility will provide us with a number of profiles we can test with, however, only one will be correct. We can test these profiles using the pslist command, validating our profile selection by the sheer number of returned results. Do this now with the command `volatility -f MEMORY_FILE.raw –profile=PROFILE pslist`. What profile is correct for this memory image?
+$ volatility -f cridex.vmem --profile=WinXPSP2x86 pslist
+    Volatility Foundation Volatility Framework 2.6.1
+    Offset(V)  Name                    PID   PPID   Thds     Hnds   Sess  Wow64 Start                         
+    ---------- -------------------- ------ ------ ------ -------- ------ ------ -----------------------------
+    0x823c89c8 System                    4      0     53      240 ------      0                              
+    0x822f1020 smss.exe                368      4      3       19 ------      0 2012-07-22 02:42:31 UTC+0000 
+    0x822a0598 csrss.exe               584    368      9      326      0      0 2012-07-22 02:42:32 UTC+0000 
+    0x82298700 winlogon.exe            608    368     23      519      0      0 2012-07-22 02:42:32 UTC+0000 
+    0x81e2ab28 services.exe            652    608     16      243      0      0 2012-07-22 02:42:32 UTC+0000 
+    0x81e2a3b8 lsass.exe               664    608     24      330      0      0 2012-07-22 02:42:32 UTC+0000 
+    0x82311360 svchost.exe             824    652     20      194      0      0 2012-07-22 02:42:33 UTC+0000 
+    0x81e29ab8 svchost.exe             908    652      9      226      0      0 2012-07-22 02:42:33 UTC+0000 
+    0x823001d0 svchost.exe            1004    652     64     1118      0      0 2012-07-22 02:42:33 UTC+0000 
+    0x821dfda0 svchost.exe            1056    652      5       60      0      0 2012-07-22 02:42:33 UTC+0000 
+    0x82295650 svchost.exe            1220    652     15      197      0      0 2012-07-22 02:42:35 UTC+0000 
+    0x821dea70 explorer.exe           1484   1464     17      415      0      0 2012-07-22 02:42:36 UTC+0000 
+    0x81eb17b8 spoolsv.exe            1512    652     14      113      0      0 2012-07-22 02:42:36 UTC+0000 
+    0x81e7bda0 reader_sl.exe          1640   1484      5       39      0      0 2012-07-22 02:42:36 UTC+0000 
+    0x820e8da0 alg.exe                 788    652      7      104      0      0 2012-07-22 02:43:01 UTC+0000 
+    0x821fcda0 wuauclt.exe            1136   1004      8      173      0      0 2012-07-22 02:43:46 UTC+0000 
+    0x8205bda0 wuauclt.exe            1588   1004      5      132      0      0 2012-07-22 02:44:01 UTC+0000  
+The imageinfo command suggested two profiles: Suggested Profile(s) : WinXPSP2x86, WinXPSP3x86 (Instantiated with WinXPSP2x86)
+
+The plist command for both profiles results in identical output, but the suggestion says “Instantiated with WinXPSP2x86.
+
+Answer: WinXPSP2x86
+
+ 
+#3 Take a look through the processes within our image. What is the process ID for the smss.exe process? If results are scrolling off-screen, try piping your output into less
+Answer: From the above process list, smss.exe has PID = 368.
+
+ 
+#4 In addition to viewing active processes, we can also view active network connections at the time of image creation! Let’s do this now with the command `volatility -f MEMORY_FILE.raw –profile=PROFILE netscan`. Unfortunately, something not great is going to happen here due to the sheer age of the target operating system as the command netscan doesn’t support it.
+$ volatility -f cridex.vmem --profile=WinXPSP2x86 netscan
+    Volatility Foundation Volatility Framework 2.6.1
+    ERROR   : volatility.debug    : This command does not support the profile WinXPSP2x86 
+  Answer: No answer needed.
+
+ 
+
+#5 It’s fairly common for malware to attempt to hide itself and the process associated with it. That being said, we can view intentionally hidden processes via the command `psxview`. What process has only one ‘False’ listed?
+$ volatility -f cridex.vmem --profile=WinXPSP2x86 psxview
+    Volatility Foundation Volatility Framework 2.6.1
+    Offset(P)  Name                    PID pslist psscan thrdproc pspcid csrss session deskthrd ExitTime
+    ---------- -------------------- ------ ------ ------ -------- ------ ----- ------- -------- --------
+    0x02498700 winlogon.exe            608 True   True   True     True   True  True    True     
+    0x02511360 svchost.exe             824 True   True   True     True   True  True    True     
+    0x022e8da0 alg.exe                 788 True   True   True     True   True  True    True     
+    0x020b17b8 spoolsv.exe            1512 True   True   True     True   True  True    True     
+    0x0202ab28 services.exe            652 True   True   True     True   True  True    True     
+    0x02495650 svchost.exe            1220 True   True   True     True   True  True    True     
+    0x0207bda0 reader_sl.exe          1640 True   True   True     True   True  True    True     
+    0x025001d0 svchost.exe            1004 True   True   True     True   True  True    True     
+    0x02029ab8 svchost.exe             908 True   True   True     True   True  True    True     
+    0x023fcda0 wuauclt.exe            1136 True   True   True     True   True  True    True     
+    0x0225bda0 wuauclt.exe            1588 True   True   True     True   True  True    True     
+    0x0202a3b8 lsass.exe               664 True   True   True     True   True  True    True     
+    0x023dea70 explorer.exe           1484 True   True   True     True   True  True    True     
+    0x023dfda0 svchost.exe            1056 True   True   True     True   True  True    True     
+    0x024f1020 smss.exe                368 True   True   True     True   False False   False    
+    0x025c89c8 System                    4 True   True   True     True   False False   False    
+    0x024a0598 csrss.exe               584 True   True   True     True   False True    True     
+Answer: csrss.exe
+
+ 
+
+#6 In addition to viewing hidden processes via psxview, we can also check this with a greater focus via the command ‘ldrmodules’. Three columns will appear here in the middle, InLoad, InInit, InMem. If any of these are false, that module has likely been injected which is a really bad thing. On a normal system the grep statement above should return no output. Which process has all three columns listed as ‘False’ (other than System)?
+$ volatility -f cridex.vmem --profile=WinXPSP2x86 ldrmodules | grep -i false
+    Volatility Foundation Volatility Framework 2.6.1
+    Pid      Process              Base       InLoad InInit InMem MappedPath
+    -------- -------------------- ---------- ------ ------ ----- ----------
+        4 System                 0x7c900000 False  False  False \WINDOWS\system32\ntdll.dll
+        368 smss.exe             0x48580000 True   False  True  \WINDOWS\system32\smss.exe
+        584 csrss.exe            0x00460000 False  False  False \WINDOWS\Fonts\vgasys.fon
+        584 csrss.exe            0x4a680000 True   False  True  \WINDOWS\system32\csrss.exe
+        608 winlogon.exe         0x01000000 True   False  True  \WINDOWS\system32\winlogon.exe
+        652 services.exe         0x01000000 True   False  True  \WINDOWS\system32\services.exe
+        664 lsass.exe            0x01000000 True   False  True  \WINDOWS\system32\lsass.exe
+        824 svchost.exe          0x01000000 True   False  True  \WINDOWS\system32\svchost.exe
+        908 svchost.exe          0x01000000 True   False  True  \WINDOWS\system32\svchost.exe
+        1004 svchost.exe         0x01000000 True   False  True  \WINDOWS\system32\svchost.exe
+        1056 svchost.exe         0x01000000 True   False  True  \WINDOWS\system32\svchost.exe
+        1220 svchost.exe         0x01000000 True   False  True  \WINDOWS\system32\svchost.exe
+        1484 explorer.exe        0x01000000 True   False  True  \WINDOWS\explorer.exe
+        1512 spoolsv.exe         0x01000000 True   False  True  \WINDOWS\system32\spoolsv.exe
+        1640 reader_sl.exe       0x00400000 True   False  True  \Program Files\Adobe\Reader 9.0\Reader\reader_sl.exe
+        788 alg.exe              0x01000000 True   False  True  \WINDOWS\system32\alg.exe
+        1136 wuauclt.exe         0x00400000 True   False  True  \WINDOWS\system32\wuauclt.exe
+        1588 wuauclt.exe         0x00400000 True   False  True  \WINDOWS\system32\wuauclt.exe 
+Answer: csrss.exe
+
+ 
+
+#7 Processes aren’t the only area we’re concerned with when we’re examining a machine. Using the ‘apihooks’ command we can view unexpected patches in the standard system DLLs. If we see an instance where Hooking module: <unknown> that’s really bad. This command will take a while to run, however, it will show you all of the extraneous code introduced by the malware.
+Answer: No answer needed.
+
+ 
+
+#8 Injected code can be a huge issue and is highly indicative of very very bad things. We can check for this with the command `malfind`. Using the full command `volatility -f MEMORY_FILE.raw –profile=PROFILE malfind -D <Destination Directory>` we can not only find this code, but also dump it to our specified directory. Let’s do this now! We’ll use this dump later for more analysis. How many files does this generate?
+$ volatility -f cridex.vmem --profile=WinXPSP2x86 malfind -D ./
+    ...[Output too long to include here]...
+$ ls -al
+    total 525736
+    drwxrwxr-x 2 hexmen hexmen      4096 May 15 12:10 .
+    drwxrwxr-x 8 hexmen hexmen      4096 May 15 10:01 ..
+    -rw------- 1 hexmen hexmen 536870912 Aug  1  2012 cridex.vmem
+    -rw-rw-r-- 1 hexmen hexmen    135168 May 15 12:10 process.0x81e7bda0.0x3d0000.dmp
+    -rw-rw-r-- 1 hexmen hexmen    135168 May 15 12:10 process.0x821dea70.0x1460000.dmp
+    -rw-rw-r-- 1 hexmen hexmen     16384 May 15 12:10 process.0x82298700.0x13410000.dmp
+    -rw-rw-r-- 1 hexmen hexmen     16384 May 15 12:10 process.0x82298700.0x4c540000.dmp
+    -rw-rw-r-- 1 hexmen hexmen     16384 May 15 12:10 process.0x82298700.0x4dc40000.dmp
+    -rw-rw-r-- 1 hexmen hexmen     16384 May 15 12:10 process.0x82298700.0x4ee0000.dmp
+    -rw-rw-r-- 1 hexmen hexmen     16384 May 15 12:10 process.0x82298700.0x554c0000.dmp
+    -rw-rw-r-- 1 hexmen hexmen     16384 May 15 12:10 process.0x82298700.0x5de10000.dmp
+    -rw-rw-r-- 1 hexmen hexmen     16384 May 15 12:10 process.0x82298700.0x6a230000.dmp
+    -rw-rw-r-- 1 hexmen hexmen     16384 May 15 12:10 process.0x82298700.0x73f40000.dmp
+    -rw-rw-r-- 1 hexmen hexmen     16384 May 15 12:10 process.0x82298700.0xf9e0000.dmp
+    -rw-rw-r-- 1 hexmen hexmen   1048576 May 15 12:10 process.0x822a0598.0x7f6f0000.dmp
+    -rw-rw-r-- 1 hexmen hexmen      3724 May 15 10:25 volatilityNotes.txt 
+Answer: 12 files are created.
+
+ 
+
+#9 Last but certainly not least we can view all of the DLLs loaded into memory. DLLs are shared system libraries utilized in system processes. These are commonly subjected to hijacking and other side-loading attacks, making them a key target for forensics. Let’s list all of the DLLs in memory now with the command `dlllist`
+$ volatility -f cridex.vmem --profile=WinXPSP2x86 dlllist
+    Volatility Foundation Volatility Framework 2.6.1
+    ************************************************************************
+    System pid:      4
+    Unable to read PEB for task.
+    ************************************************************************
+    smss.exe pid:    368
+    Command line : \SystemRoot\System32\smss.exe
+    
+    
+    Base             Size  LoadCount LoadTime                       Path
+    ---------- ---------- ---------- ------------------------------ ----
+    0x48580000     0xf000     0xffff                                \SystemRoot\System32\smss.exe
+    0x7c900000    0xaf000     0xffff                                C:\WINDOWS\system32\ntdll.dll
+    ************************************************************************
+    csrss.exe pid:    584
+    Command line : C:\WINDOWS\system32\csrss.exe ObjectDirectory=\Windows SharedSection=1024,3072,512 Windows=On 
+        SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,
+            3 ServerDll=winsrv:ConServerDllInitialization,2 ProfileControl=Off MaxRequestThreads=16
+    Service Pack 3
+    ...[More output for each process not shown here]... 
+Answer: No answer needed.
+
+ 
+
+#10 Now that we’ve seen all of the DLLs running in memory, let’s go a step further and pull them out! Do this now with the command `volatility -f MEMORY_FILE.raw –profile=PROFILE –pid=PID dlldump -D <Destination Directory>` where the PID is the process ID of the infected process we identified earlier (questions five and six). How many DLLs does this end up pulling?
+$ volatility -f cridex.vmem --profile=WinXPSP2x86 --pid=584 dlldump -D ./dlldump
+    Volatility Foundation Volatility Framework 2.6.1
+    Process(V) Name                 Module Base Module Name          Result
+    ---------- -------------------- ----------- -------------------- ------
+    0x822a0598 csrss.exe            0x04a680000 csrss.exe            OK: module.584.24a0598.4a680000.dll
+    0x822a0598 csrss.exe            0x07c900000 ntdll.dll            OK: module.584.24a0598.7c900000.dll
+    0x822a0598 csrss.exe            0x075b40000 CSRSRV.dll           OK: module.584.24a0598.75b40000.dll
+    0x822a0598 csrss.exe            0x077f10000 GDI32.dll            OK: module.584.24a0598.77f10000.dll
+    0x822a0598 csrss.exe            0x07e720000 sxs.dll              OK: module.584.24a0598.7e720000.dll
+    0x822a0598 csrss.exe            0x077e70000 RPCRT4.dll           OK: module.584.24a0598.77e70000.dll
+    0x822a0598 csrss.exe            0x077dd0000 ADVAPI32.dll         OK: module.584.24a0598.77dd0000.dll
+    0x822a0598 csrss.exe            0x077fe0000 Secur32.dll          OK: module.584.24a0598.77fe0000.dll
+    0x822a0598 csrss.exe            0x075b50000 basesrv.dll          OK: module.584.24a0598.75b50000.dll
+    0x822a0598 csrss.exe            0x07c800000 KERNEL32.dll         OK: module.584.24a0598.7c800000.dll
+    0x822a0598 csrss.exe            0x07e410000 USER32.dll           OK: module.584.24a0598.7e410000.dll
+    0x822a0598 csrss.exe            0x075b60000 winsrv.dll           OK: module.584.24a0598.75b60000.dll 
+Answer: There are 12 .dlls that are pulled from memory.
+
+[Task 4] Post Actions
+#1 Upload the extracted files to VirusTotal for examination.
+Answer: No answer needed.
+
+ 
+
+#2 Upload the extracted files to Hybrid Analysis for examination – Note, this will also upload to VirusTotal but for the sake of demonstration we have done this separately.
+Answer: No answer needed.
+
+ 
+
+#3 What malware has our sample been infected with? You can find this in the results of VirusTotal and Hybrid Anaylsis.
+Tasks 3 and 4 are worded such that the user would assume to upload the .dll files extracted from csrss.exe.  After talking to a THM mod, we came to the conclusion the room doesn’t make it clear which process to extract the .dll files to upload.  
+
+The process in question is smss.exe.  This process is only mentioned once in the entire room, but it is the first user-level process started up by the kernel, so malware tend to try and attach to it; especially as it’s responsible for user sessions and system/environment variables like $PATH.  
+
+But once I extracted the .dlls from this process (Follow T3Q10) and uploaded the files to hybrid-analysis, I still couldn’t get the correct answer.  Neither Hyrid-Analysis or Virustotal returned any relevant results.  
+
+What worked for me was to upload the .dmp files from T3Q8.  I instantly got results from both Hybrid-Analysis and Virustotal.  
+
+The scans can be found in the links below:
+
+https://hybrid-analysis.com/file-collection/5ebefdc9ef012d294567a3a8
+
+https://www.virustotal.com/gui/file/e00a1143fea8568f5bcbe2793c6b87032ba57f2fdd122266ea799658169d36b2/detection
+
+Answer: Cridex
+
+ 
+
+This room was really fun and it was a great introduction to malware analysis from a memory capture.  I enjoyed seeing how malware can be injected into a process to run malicious code; its eerily similar to game hacking!  Internal game hacks are usually .dll files that get injected into the game’s process and manipulates its code.  
+
