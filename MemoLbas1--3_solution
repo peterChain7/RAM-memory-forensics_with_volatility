@@ -1,0 +1,160 @@
+MemLabs Writeup using Volatility Labs 1–3
+
+MemLabs is an educational, introductory set of CTF-styled challenges aimed to encourage CTF players to develop their knowledge in the field of Memory Forensics. These labs have been created to use the memory analysis framework, Volatility alongside other tools along the way.
+Memory forensics (sometimes referred to as memory analysis) refers to the analysis of volatile data in a computer’s memory dump. Information security professionals conduct memory forensics to investigate and identify attacks or malicious behaviours that do not leave easily detectable tracks on hard drive data.
+Volatile data includes the browsing history, clipboard contents, and chat messages presented in the short-term memory storage. A memory dump is a capture of data through a random access memory (RAM), which includes the memory that was stored before the system crash. It provides experts with diagnostic information at the time of the crash and contains a code that caused the crash. Through the use of memory forensics, digital forensics analysts have the ability to find buried evidence. In many instances, certain artefacts can only be found in the RAM, such as open network connections present during the time of the crash. Attackers can develop malware which only resides in the memory, rather than the disk, making it virtually invisible to standard computer forensic methods. This makes the need of memory forensics tools in high demand.
+Volatility is an open source memory forensics framework for incident response and malware analysis. This provides forensic analysts with numerous automatic tools for determining and revealing malicious activity. It is written in Python and supports Windows, Mac OS X and Linux. Because it is open source additional plugins can be added to improve it’s usability!
+If you’re reading this because you’re stuck or need guidance when tackling the MemLabs challenges, I would recommend to try with the vol.py -h function first, to give a list of useful plugins to use.
+Worth noting before starting that the flags are found in part of the investigative process and there are no singular questions to help find these. The format for flags in a particular lab is:
+flag{stage1_is_n0w_d0n3}
+flag{stage2_is_n0w_d0n3}
+flag{stage3_is_n0w_d0n3}
+With that said, let’s begin!
+                                          LAB 1
+                                          
+My sister’s computer crashed. We were very fortunate to recover this memory dump. Your job is get all her important files from the system. From what we remember, we suddenly saw a black window pop up with some thing being executed. When the crash happened, she was trying to draw something. That's all we remember from the time of crash.
+Okay, once downloaded the memory dump, let’s examine the image info:
+
+We can find the suggested profile using command:
+volatility_2.6_win64_standalone.exe -f C:\Users\DEEP\Downloads\MemoryDump_Lab1.raw imageinfo
+From here we have the profile Win7SP1x64 as the suggested one to use.
+volatility_2.6_win64_standalone.exe -f C:\Users\DEEP\Downloads\MemoryDump_Lab1.raw — profile=Win7SP1x64 pslist
+
+
+We can see that mspaint.exe (PID 2424), cmd.exe (PID 1984) and WinRAR.exe (PID 1512) spark interest — partly for privilege escalation and command line access. Dumpit.exe is also pretty sus, but most definitely the tool which was used to generate the memory dump, so not too bothered about this. Next, we’ll inspect if any of these processes are hiding their existence from pslist or other plugins:
+volatility_2.6_win64_standalone.exe -f C:\Users\DEEP\Downloads\MemoryDump_Lab1.raw — profile=Win7SP1x64 psxview
+
+Interestingly WinRAR.exe (PID 1512) is hidden from pslist, thrdproc, pspcid, csrss, session and deskthrd.
+Looking at the netscan plugin for network traffic utilising processes:
+volatility_2.6_win64_standalone.exe -f C:\Users\DEEP\Downloads\MemoryDump_Lab1.raw — profile=Win7SP1x64 netscan
+We see, a couple of suspicious processes here:
+
+wmpnetwk.exe (PID 1856) and ?J3☺???? (PID 1). Worth noting here that Threatminer states that 10.0.2.15 is associated with multiple malware samples, in particular Worms. With that in mind, it’s worth us keeping an eye on svchost.exe (PID 1372), especially as this gets heavily abused.
+Next we’ll look at consoles:
+volatility_2.6_win64_standalone.exe -f C:\Users\DEEP\Downloads\MemoryDump_Lab1.raw — profile=Win7SP1x64 consoles
+
+
+And what do we have here? It seems the consoles plugin shows a command St4Ge$1 with an output ZmxhZ3t0aDFzXzFzX3RoM18xc3Rfc3Q0ZzMhIX0=
+If we decode this from base64, we get our first flag:
+Flag 1: flag{th1s_1s_th3_1st_st4g3!!}
+Nice, if we now look at the command lines for the suspicious processes we highlighted:
+volatility_2.6_win64_standalone.exe -f C:\Users\DEEP\Downloads\MemoryDump_Lab1.raw — profile=Win7SP1x64 cmdline -p 2424,1984,1512,1,1372
+
+Note svchost.exe cmdline ‘LocalServiceAndNoImpersonation’ is actually associated with Windows App Locker and is safe, albeit looks sus at first glance. The process that sticks out now is WinRAR.exe and the C:\Users\Alissa Simpson\Documents\Important.rar file.
+Let’s focus on the mspaint.exe process, using the memdump plugin to examine the data.
+
+Trying to open this in WinDbg as recommended also leads to failures. Further research recommends changing the filename to .data and opening with GIMP (GNU Image Manipulation Program).
+
+Adjusting this image, we see what appears to be writing:
+
+And there we have it, using Microsoft Paint (shock) to adjust the image:
+
+Flag 2: Flag{G00d_BoY_good_girL}
+I must admit, not the most straightforward flag considering this is lab 1… but hopefully we get a fairly straightforward flag 3. I think it’s worth circling back to this Important.rar file through using the filescan plugin.
+volatility_2.6_win64_standalone.exe -f C:\Users\DEEP\Downloads\MemoryDump_Lab1.raw — profile=Win7SP1x64 filescan | findstr “Important.rar”
+
+Well we know his sister is called Alissa Simpson and where this document is located. Looking at the ID provided, we can now perform a file dump:
+>volatility_2.6_win64_standalone.exe -f C:\Users\DEEP\Downloads\MemoryDump_Lab1.raw — profile=Win7SP1x64 dumpfiles -Q 0x000000003fa3ebc0 -D C:\Users\DEEP\Desktop\
+
+Following this, change the name and filetype to ‘important.rar’ and UnRAR it… Unfortunately it is password protected. Fortunately there is a password hashdump plugin which can provide passwords. The hint states all uppercase letters so we must change this.
+
+Quite nice that we performed a (sort of) Credential Dumping/Pass-the-Hash attack here. NTLM Hash: F4FF64C8BAAC57D22F22EDC681055BA6.
+From using this password we extract the .rar file to receive a flag3.png file. Opening these we get:
+
+Flag 3: flag{w3ll)3rd_stage_was_easy}
+                       
+                        LAB 2
+
+One of the clients of our company, lost the access to his system due to an unknown error. He is supposedly a very popular “environmental” activist. As a part of the investigation, he told us that his go to applications are browsers, his password managers etc. We hope that you can dig into this memory dump and find his important stuff and give it back to us.
+I’m going to hazard a guess that by ‘environmental’ it means to try the environment plugin. But first let’s grab the profile again.
+volatility_2.6_win64_standalone.exe -f C:\Users\DEEP\Downloads\MemLabs-Lab2\MemoryDump_Lab2.raw imageinfo
+
+Also, the question said to focus on password managers and browsers so let’s have a look there also.
+volatility_2.6_win64_standalone.exe -f C:\Users\DEEP\Downloads\MemLabs-Lab2\MemoryDump_Lab2.raw — profile=Win7SP1x64 pslist
+
+
+Here we can see multiple instances of chrome.exe active as well as KeePass.exe (PID 3008) which sparks interest. Utilising the psxview plugin also indicates no hidden processes showing a cause for concern. Turning our attention now to the environmental variables plugin envars, let’s see if this hunch was correct:
+volatility_2.6_win64_standalone.exe -f C:\Users\DEEP\Downloads\MemLabs-Lab2\MemoryDump_Lab2.raw — profile=Win7SP1x64 envars
+Sifting through this, I noted something suspicious:
+
+Under the variable NEW_TMP we have a value in the Windows Directory folder of ZmxhZ3t3M2xjMG0zX1QwXyRUNGczXyFfT2ZfTDRCXzJ9. Base64 decoding this and we get:
+Flag 1: flag{w3lc0m3_T0_$T4g3_!_Of_L4B_2}
+Cheers, good to be here. Let’s investigate the KeePass.exe process now.
+volatility_2.6_win64_standalone.exe -f C:\Users\DEEP\Downloads\MemLabs-Lab2\MemoryDump_Lab2.raw — profile=Win7SP1x64 cmdline -p 3008
+
+We see KeePass executing a password safe in the directory C:\Users\SmartNet\Secrets\Hidden.kdbx. This hidden file is a KeePass Password Database. The next step is the same as lab one, we must first find the hex name matching the kdbx file, using the filescan plugin. Please remember to add the pipe stringstr or it will just perform a full filescan…
+volatility_2.6_win64_standalone.exe -f C:\Users\DEEP\Downloads\MemLabs-Lab2\MemoryDump_Lab2.raw — profile=Win7SP1x64 filescan | findstr “Hidden.kdbx”.
+
+Wicked, time to do a file dump I reckon.
+volatility_2.6_win64_standalone.exe -f C:\Users\DEEP\Downloads\MemLabs-Lab2\MemoryDump_Lab2.raw — profile=Win7SP1x64 dumpfiles -Q 0x000000003fb112a0 -D C:\Users\DEEP\Desktop
+And just like that we have a DAT file in our Desktop folder. After renaming this to hidden.hdbx, installing then opening KeePass, it shows us a password is needed. Unfortunately the hashdump plugin is a dead-end here. This was a right pain to find. Looking back at the filescan plugin, I used a wildcard to find any password files.
+
+One sticks out in particular, \Device\HarddiskVolume2\Users\Alissa Simpson\Pictures\Password.png. Let’s extract this file:
+volatility_2.6_win64_standalone.exe -f C:\Users\DEEP\Downloads\MemLabs-Lab2\MemoryDump_Lab2.raw — profile=Win7SP1x64 dumpfiles -Q 0x000000003fce1c70 -D C:\Users\DEEP\Desktop
+Happy days, change the file to a .png type and open it up:
+
+We have a password! Let’s try opening up that .hdbx file, password being P4SSw0rd_123. Looking through the ‘Recycle Bin’ of the Hidden file, we see a username called ‘Flag’.
+
+Go ahead and copy that password, paste and you’ll see the flag.
+Flag 2: flag{w0w_th1s_1s_Th3_SeC0nD_ST4g3_!!}
+Quite the pain that flag, but let’s move onto flag 3 and focus back on the Browsers. Unfortunately, doing a filescan of all Chrome processes (PIDs 2296,2304,2476,2964,2572,1632) doesn’t quite help here so it’s best to take the string search approach here:
+volatility_2.6_win64_standalone.exe -f C:\Users\DEEP\Downloads\MemLabs-Lab2\MemoryDump_Lab2.raw — profile=Win7SP1x64 filescan | findstr “Chrome”
+Not an ideal, search but it’s noted the history is shown here. Let’s refine the search here a little bit more:
+volatility_2.6_win64_standalone.exe -f C:\Users\DEEP\Downloads\MemLabs-Lab2\MemoryDump_Lab2.raw — profile=Win7SP1x64 filescan | findstr “Chrome” | findstr “History”
+From this we find the History DAT file which I would recommend opening in texteditor.nsspot.net as it provides a user friendly(ish) format as opposed to notepad.
+
+Looking through this, we see Mega.nz URL. Navigating to this allows us to download a file ‘Important.zip’. Unzipping this requires a password which is “SHA1(stage-3-FLAG) from Lab-1. Password is in lowercase”. As we already have this, we can just go to CyberChef and use the ‘SHA1’ Operation to get the password which is: f4ff64c8baac57d22f22edc681055ba6.
+And just like that we have flag 3.
+
+Flag 3: flag{oK_So_Now_St4g3_3_is_DoNE!!}
+                   
+                                    LAB 3
+
+Lab 3 - The Evil’s Den. A malicious script encrypted a very secret piece of information I had on my system. Can you recover the information for me please?
+Note-1: This challenge is composed of only 1 flag. The flag split into 2 parts.
+Note-2: You’ll need the first half of the flag to get the second.
+Let’s do the standard imageinfo plugin to find the profile.
+
+That’s great. Applying a psxview straight away to try and find hidden processes:
+
+
+Straight away we see a suspicious processes:
+?♦??I2P (PID 81).
+Two instances of python (PID 3632 and 2284)
+two instances of notepad (PID 3736 and 3432)
+cmd.exe (PID 1644)
+dllhost.exe (PID 2272)
+msiexec.exe (PID 272)
+Using the cmdline function, let’s see if there are any commands associated with our hunches.
+volatility_2.6_win64_standalone.exe -f C:\Users\DEEP\Desktop\MemoryDump_Lab3.raw — profile=Win7SP1x86_23418 cmdline -p 81,3632,2284,3736,3432,1644,2272,272
+There are two files ‘vip.txt’ and ‘evilscript.py’ which look interesting:
+
+Let’s get the offset names for these files and then look to extract them:
+
+Change the file names and types to vip.txt and evilscript.py. After, open both with notepad and you’ll see the script and an encrypted value within evilscript.py and vip.txt. respectively.
+
+As it seems the vip.txt has been produced from the evilscript.py script, we can reverse the value using CyberChef (which is such a good tool if you haven’t used this before).
+So this value has been XOR’d then Base64 encoded, so we must reverse these two functions to get the initial input. From here just put in those two as inputs and we find one half of the flag.
+
+Flag 1/2: inctf{0n3_h4lf
+That was pretty straight forward to be fair. I imagine this second half is probably going to be a right old pain. Forgot to mention also an additional tool is required for this second half, Steghide. Steghide is a steganography program that is able to hide data in various kinds of image and audio files. With that said, there are other tools that could probably do the same functionality such as OutGuess but I’ve already used these before and it’s always good to learn how to use more tools.
+As this for specifically audio and image files, I did a generic search of files with these types:
+volatility_2.6_win64_standalone.exe -f C:\Users\DEEP\Desktop\MemoryDump_Lab3.raw — profile=Win7SP1x86_23418 filescan | findstr “.jpg .jpeg .mp3 .wav .flac .aiff”
+One that immediately stood out was ‘suspision1.jpeg’.
+
+volatility_2.6_win64_standalone.exe -f C:\Users\DEEP\Desktop\MemoryDump_Lab3.raw — profile=Win7SP1x86_23418 dumpfiles -Q 0x0000000004f34148 -D C:\Users\DEEP\Desktop
+After extraction and changing the file to ‘suspision.jpeg’, we see an interesting image…
+
+Next let’s load Steghide. We can see from the README the method of extracting messages from an image:
+$ steghide extract -sf picture.jpg
+Enter passphrase:
+wrote extracted data to “secret.txt”.
+Using this same logic, let’s extract any hidden messages from suspisious.jpeg.
+steghide extract -sf C:\Users\DEEP\Desktop\suspision.jpeg
+Password here at first I thought was the number on the image, 557455741, which it wasn’t. Next best guest was the first half of the flag, which got me in.
+
+After opening up secret text (which by the way is saved in the steghide folder), we get the second half of the flag!
+Flag 2/2: _1s_n0t_3n0ugh}
+Combining these and we get…
+Flag: inctf{0n3_h4lf_1s_n0t_3n0ugh}
+Not bad for the first half of challenges. Let’s hope the next three are equally as smooth a ride…
