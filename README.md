@@ -30,3 +30,11 @@ Description
  Process dump with volatility 
     
          volatility -f Triage-Memory.mem --profile=Win7SP1x64 procdump --pid 3496 --dump-dir .
+15. What is the short name of the file at file record 59045?
+
+    `Mftparser,` as indicated in the Volatility webpage, scans and analyzes entries in the Master File Table (MFT).
+ What is the master `file table` MFT in NTFS?
+ 
+            A master file table is a database in which information about every file and directory on an NT File System (NTFS) volume is kept. An MFT will have a minimum one record for every file and directory on the NTFS logical volume.
+            
+             volatility -f Triage-Memory.mem --profile=Win7SP1x64 mftparser | tee dump/mftparser.txt
