@@ -16,3 +16,17 @@ Description
           volatility -f MemoryDump_Lab2.raw --profile=Win7SP1x64 envars
    Flag 2 
          
+## Cyberdefenders
+
+* https://cyberdefenders.org/blueteam-ctf-challenges/65
+
+ 13.  An application was run at 2019-03-07 23:06:58 UTC. What is the name of the program? (Include extension)
+ 
+              volatility -f Triage-Memory.mem --profile=Win7SP1x64 shimcache | grep -i "2019-03-07 23:06:58 UTC"
+7. How many processes are associated with VCRUNTIME140.dll?
+
+         volatility -f Triage-Memory.mem --profile=Win7SP1x64 dlllist | grep -i "VCRUNTIME140.dll" 
+         
+ Process dump with volatility 
+    
+         volatility -f Triage-Memory.mem --profile=Win7SP1x64 procdump --pid 3496 --dump-dir .
